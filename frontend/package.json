@@ -11,6 +11,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.51.0",
     "formidable": "^3.5.4",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^0.525.0",
     "next": "15.3.5",
     "papaparse": "^5.5.3",

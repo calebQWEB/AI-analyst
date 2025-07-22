@@ -4,16 +4,18 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { configFields } from "@/libs/configFields";
 import FileUploader from "@/components/FileUploader";
+import AnalyzingModal from "./AnalyzingModal";
 
 export default function ConfigurePage() {
   const { selectedSources } = useSetup();
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const router = useRouter();
 
   useEffect(() => {
     if (selectedSources.length === 0) {
-      router.push("/setup/sources");
+      router.push("/setup/source");
     }
   }, [selectedSources]);
 
@@ -40,54 +42,98 @@ export default function ConfigurePage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setLoading(true); // Your original loading state
+    setError(""); // Clear any previous page-level error messages
 
     try {
-      // Step 1: Send the formData (which now includes Supabase filePaths) to your Next.js API route
-      // This Next.js API route (`/api/invoke`) will then proxy the request to your Python backend.
       const analysisRes = await fetch("/api/invoke", {
-        // <-- Call your Next.js /api/invoke
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // Construct the payload for Python backend via Next.js proxy
           data: [
             {
-              type: "supabase_excel", // Indicate the type of data
-              path: formData.excelFile, // Use the stored filePath for the spreadsheet field
+              type: "supabase_excel",
+              path: formData.excelFile,
             },
           ],
           config: {
-            // Pass any other form data as 'config'
-            ...formData, // Spread the rest of formData into config
+            ...formData,
           },
         }),
       });
 
       console.log("Form Data:", formData);
       console.log(
-        "🚀 Payload being sent to /api/invoke:",
-        JSON.stringify(analysisRes, null, 2)
-      ); // ADD THIS LINE
+        "🚀 Payload being sent to /api/invoke (after form data):",
+        JSON.stringify(
+          {
+            data: [{ type: "supabase_excel", path: formData.excelFile }],
+            config: { ...formData },
+          },
+          null,
+          2
+        )
+      );
 
       if (!analysisRes.ok) {
         const errorText = await analysisRes.text();
-        console.error("❌ Analysis API returned error:", errorText);
-        throw new Error("Analysis request failed");
+        console.error(
+          "❌ Analysis API returned non-OK status:",
+          analysisRes.status,
+          errorText
+        );
+        throw new Error(
+          `Analysis initiation failed with status ${analysisRes.status}: ${errorText}`
+        );
       }
 
-      const analysisResult = await analysisRes.json();
-      console.log("✅ Analysis result:", analysisResult);
-      sessionStorage.setItem("analysis", JSON.stringify(analysisResult));
+      const analysisInitiationResult = await analysisRes.json();
+      console.log("✅ Analysis initiation result:", analysisInitiationResult);
 
-      // Step 2: Navigate to dashboard
-      router.push(`/dashboard/${analysisResult.session_id}`);
+      // --- REFINED JSON VALIDATION LOGIC ---
+      const initialAnalysisContent =
+        analysisInitiationResult.initial_analysis || "";
+
+      // Check for common error patterns in the initial_analysis string
+      const hasAnalysisErrorString =
+        initialAnalysisContent.includes("Error processing chunk") ||
+        initialAnalysisContent.includes("Connection error.") ||
+        initialAnalysisContent.includes("ERROR:"); // Add other specific error keywords if you find them
+
+      // Validate if session_id is valid AND if the initial_analysis does NOT contain an error string
+      if (
+        analysisInitiationResult &&
+        analysisInitiationResult.session_id &&
+        !hasAnalysisErrorString // <-- NEW CHECK
+      ) {
+        // SUCCESS PATH: Proceed to dashboard
+        router.push(`/dashboard/${analysisInitiationResult.session_id}`);
+      } else {
+        // ERROR PATH: JSON payload indicates an issue (either missing session_id or error string in analysis)
+        const errorMessage =
+          (hasAnalysisErrorString ? initialAnalysisContent : null) || // Use the error string from analysis if present
+          analysisInitiationResult.message ||
+          analysisInitiationResult.error ||
+          "Failed to start analysis due to invalid response structure or internal error.";
+
+        console.error(
+          "❌ Invalid analysis initiation response (JSON content):",
+          analysisInitiationResult
+        );
+        throw new Error(errorMessage); // Throw error to be caught by the catch block below
+      }
+      // --- END REFINED JSON VALIDATION LOGIC ---
     } catch (err) {
       console.error("❌ Config submission failed:", err);
+      setError(
+        err.message || "Something went wrong during analysis initiation."
+      );
     } finally {
       setLoading(false);
     }
   };
+
+  if (loading) return <AnalyzingModal />;
 
   return (
     <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 px-4 py-16 font-sans">

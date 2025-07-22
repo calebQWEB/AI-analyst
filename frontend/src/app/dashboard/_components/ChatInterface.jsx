@@ -199,7 +199,7 @@ const ChatInterface = () => {
                                     transition duration-300 ease-in-out transform hover:scale-105"
             disabled={loading || isLoadingHistory} // Disable button when loading
           >
-            {loading ? "Sending..." : "Send"}
+            {loading ? "Thinking..." : "Send"}
           </button>
         </form>
       </div>
